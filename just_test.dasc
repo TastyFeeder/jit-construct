@@ -1,0 +1,171 @@
+#include <stdint.h>
+#include "util.h"
+
+|.arch x64
+|.actionlist actions
+|
+|// Use rbx as our cell pointer.
+|// Since rbx is a callee-save register, it will be preserved
+|// across our calls to getchar and putchar.
+|.define PTR, rbx
+|
+|// Macro for calling a function.
+|// In cases where our target is <=2**32 away we can use
+|//   | call &addr
+|// But since we don't know if it will be, we use this safe
+|// sequence instead.
+|.macro callp, addr
+|  mov64  rax, (uintptr_t)addr
+|  call   rax
+|.endmacro
+
+#define Dst &state
+#define MAX_NESTING 256
+int continuous_count(char *p)
+{
+    char *ptr = p;
+    int count = 0;
+    while (*ptr == *p) {
+        count++;
+        ptr++;
+    }
+    return count;
+}
+//check clear-loop Multiplication loops copy-loop
+int check_loops(char **p,int *index,int *mult)
+{
+	int res,offset = 0,_index = 0;
+    if (*(*p+1) != '-') return -1;
+    *p += 2;
+    while (**p != ']') {
+        if (**p == '[' || **p == '-' ||
+            **p == '.' || **p == ',')
+            return -1;
+        res = continuous_count(*p);
+        if (**p == '>') offset += res;
+        else if (**p == '<') offset -= res;
+        else if (**p == '+') {
+            index[_index] = offset;
+            mult[_index] = res;
+            _index++;
+        }
+        *p += res;
+   }
+   if (offset != 0) return -1;
+   return _index;
+}
+int main(int argc, char *argv[])
+{
+	if (argc < 2) err("Usage: jit-x64 <inputfile>");
+	dasm_State *state;
+	initjit(&state, actions);
+	int indexarray[MAX_NESTING]={0};
+	int multarray[MAX_NESTING]={0};
+	unsigned int maxpc = 0;
+	int pcstack[MAX_NESTING];
+	int *top = pcstack, *limit = pcstack + MAX_NESTING;
+	int checkloop=0;
+	int count_inc=0,count_dec=0,count_add=0,count_sub=0;
+	// Function prologue.
+	|  push PTR
+	|  mov  PTR, rdi      // rdi store 1st argument
+	char *tmp;
+	for (char *p = read_file(argv[1]); *p; p++) {
+		switch (*p) {
+		case '>':
+			count_inc = continuous_count(p);
+			|  add PTR,count_inc
+			p+= (count_inc-1);
+			break;
+		case '<':
+			count_dec = continuous_count(p);
+			|  sub PTR,count_dec
+			p+= (count_dec-1);
+			break;
+		case '+':
+			count_add = continuous_count(p);
+			|  add byte[PTR],count_add
+			p+= (count_add-1);
+			break;
+		case '-':
+			count_sub = continuous_count(p);
+			|  sub byte[PTR],count_sub
+			p+= (count_sub-1);
+			break;
+		case '.':
+			|  movzx edi, byte [PTR]
+			|  callp putchar
+			break;
+		case ',':
+			|  callp getchar
+			|  mov   byte [PTR], al
+			break;
+		case '[':
+			if (top == limit) err("Nesting too deep.");
+			// Each loop gets two pclabels: at the beginning and end.
+			// We store pclabel offsets in a stack to link the loop
+			// begin and end together.
+			tmp=p;
+			checkloop=check_loops(&p,indexarray,multarray);
+			//printf("check:%d\t",checkloop);
+			if(checkloop==0)
+			{
+				//clear loop
+				|  mov byte [PTR], 0
+			}
+			else if(checkloop==-1)
+			{
+				//basic_state
+        p=tmp;
+				maxpc += 2;
+				*top++ = maxpc;
+				dasm_growpc(&state, maxpc);
+				|  cmp  byte [PTR], 0
+				|  je   =>(maxpc-2)
+				|=>(maxpc-1):
+
+			}
+			else
+			{
+				int i;
+        //save r8 in stack
+				|  push r8
+				for(i=0;i<checkloop;i++)
+				{
+					//do men[p+indexarray[i]]=men[p]*multarray[i];
+					|  movzx r8 , byte[PTR]
+					|  push r9
+					|  imul r8,multarray[i]
+					|  mov r9, PTR
+					|  add r9, indexarray[i]
+					|  add  byte[r9],r8b
+					|  pop  r9
+					//pointer update
+				}
+        //restore r8
+				|  pop  r8
+				//clear loop
+				|  mov byte [PTR], 0
+			}
+			break;
+		case ']':
+			if (top == pcstack) err("Unmatched ']'");
+			top--;
+			|  cmp  byte [PTR], 0
+			|  jne  =>(*top-1)
+			|=>(*top-2):
+			break;
+		}
+	}
+
+	// Function epilogue.
+	|  pop  PTR
+	|  ret
+
+	void (*fptr)(char*) = jitcode(&state);
+	char *mem = calloc(30000, 1);
+	fptr(mem);
+	free(mem);
+	free_jitcode(fptr);
+	return 0;
+}

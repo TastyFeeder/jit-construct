@@ -1,0 +1,4 @@
+progs/awib.b            GOOD	88.5ms
+progs/mandelbrot.b      GOOD	4008.3ms
+progs/hanoi.b           GOOD	8559.2ms
+

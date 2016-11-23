@@ -1,0 +1,6 @@
+
+Executing Brainf*ck benchmark suite. Be patient.
+
+progs/awib.b            GOOD	21.7ms
+progs/mandelbrot.b      GOOD	1105.8ms
+progs/hanoi.b           GOOD	60.1ms

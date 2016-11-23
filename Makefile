@@ -52,7 +52,7 @@ jit-x64: dynasm-driver.c jit-x64.h
 	$(CC) $(CFLAGS) -o $@ -DJIT=\"jit-x64.h\" \
 		dynasm-driver.c
 jit-x64.h: jit-x64.dasc
-	        $(LUA) dynasm/dynasm.lua -o $@ jit-x64.dasc
+	        $(LUA) dynasm/dynasm.lua -o $@ just_test.dasc
 run-jit-x64: jit-x64
 	./jit-x64 progs/hello.b && objdump -D -b binary \
 		-mi386 -Mx86-64 /tmp/jitcode
